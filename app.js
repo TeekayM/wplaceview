@@ -1,82 +1,74 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
 
-let scene, camera, renderer, reticle, hitTestSource, hitTestSourceRequested;
+let scene, camera, renderer;
+let userOffset = { x: 0, y: 0 };
 
 init();
+getUserPosition();
+
 function init() {
-  // Renderer with alpha=true → camera feed shows through
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
-
-  // AR Button
-  document.body.appendChild(ARButton.createButton(renderer, {
-    requiredFeatures: ['hit-test']
-  }));
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera();
 
-  // Light
   const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
   scene.add(light);
 
-  // Reticle
-  const ring = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
-  reticle = new THREE.Mesh(
-    ring,
-    new THREE.MeshBasicMaterial({ color: 0xffffff })
-  );
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
-
-  // Tap to place cube
-  window.addEventListener('click', () => {
-    if (!reticle.visible) return;
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.1, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0xff5533 })
-    );
-    cube.position.setFromMatrixPosition(reticle.matrix);
-    scene.add(cube);
-  });
+  document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['local-floor'] }));
 
   renderer.setAnimationLoop(render);
 }
 
-function render(timestamp, frame) {
-  const session = renderer.xr.getSession();
-  if (frame) {
-    const referenceSpace = renderer.xr.getReferenceSpace();
+function getUserPosition() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      // crude mapping: just use lat/long as offsets
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
 
-    if (!hitTestSourceRequested) {
-      session.requestReferenceSpace('viewer').then((viewerSpace) => {
-        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-          hitTestSource = source;
-        });
-      });
-      session.addEventListener('end', () => {
-        hitTestSourceRequested = false;
-        hitTestSource = null;
-      });
-      hitTestSourceRequested = true;
-    }
+      // scale them into something smaller
+      userOffset.x = Math.floor(lon * 10);
+      userOffset.y = Math.floor(lat * 10);
 
-    if (hitTestSource) {
-      const results = frame.getHitTestResults(hitTestSource);
-      if (results.length > 0) {
-        const hit = results[0];
-        const pose = hit.getPose(referenceSpace);
-        reticle.visible = true;
-        reticle.matrix.fromArray(pose.transform.matrix);
-      } else {
-        reticle.visible = false;
-      }
+      makeSkyGrid();
+    });
+  } else {
+    makeSkyGrid(); // fallback
+  }
+}
+
+function makeSkyGrid() {
+  const gridSize = 20;     // 20x20 tiles
+  const tileSize = 0.5;    // 0.5m each
+  const height = 10;       // put in the "sky" 10m above user
+
+  const group = new THREE.Group();
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      const x = (i - gridSize/2) * tileSize;
+      const z = (j - gridSize/2) * tileSize;
+
+      // determine color based on position + user coords
+      const parity = (i + userOffset.x + j + userOffset.y) % 2;
+      const color = parity === 0 ? 0x44aa88 : 0xaa4488;
+
+      const tile = new THREE.Mesh(
+        new THREE.PlaneGeometry(tileSize, tileSize),
+        new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+      );
+      tile.position.set(x, height, z);
+      tile.rotation.x = -Math.PI/2; // flat
+      group.add(tile);
     }
   }
 
+  scene.add(group);
+}
+
+function render() {
   renderer.render(scene, camera);
 }
