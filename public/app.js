@@ -43,8 +43,8 @@ function getUserPosition() {
 
 function makeSkyGrid() {
   const gridSize = 20;     // 20x20 tiles
-  const tileSize = 0.5;    // 0.5m each
-  const height = 10;       // put in the "sky" 10m above user
+  const tileSize = 100;    // 0.5m each
+  const height = 100;       // put in the "sky" 10m above user
 
   const group = new THREE.Group();
   for (let i = 0; i < gridSize; i++) {
